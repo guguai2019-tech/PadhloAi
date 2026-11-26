@@ -121,6 +121,12 @@ const __dirname = path.dirname(__filename);
 
 const PORT = Number(process.env.PORT) || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
+const IS_SERVERLESS = Boolean(
+  process.env.VERCEL ||
+    process.env.VERCEL_ENV ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.LAMBDA_TASK_ROOT,
+);
 
 function buildSystemInstruction(language?: string, customInstruction?: string): string {
   const langGuide =
@@ -238,9 +244,10 @@ function requireRegisteredStudentAuth(
   next();
 }
 
-async function startServer() {
+export async function createApp(options?: {
+  attachStaticOrVite?: boolean;
+}): Promise<express.Express> {
   const app = express();
-  const httpServer = http.createServer(app);
   app.use(express.json({ limit: '50mb' }));
 
   // Initialize centralized DB on server startup
@@ -4408,13 +4415,24 @@ Return ONLY valid JSON (no markdown fences):
     }
   });
 
-  if (IS_PROD) {
+  // Ensure unmatched /api/* endpoints always return structured JSON 404 diagnostics
+  app.use('/api', (req, res) => {
+    res.status(404).json({
+      error: `API endpoint not found: ${req.method} ${req.originalUrl || req.path}`,
+      code: 'API_ROUTE_NOT_FOUND',
+    });
+  });
+
+  const shouldAttachStaticOrVite =
+    options?.attachStaticOrVite !== false && !IS_SERVERLESS;
+
+  if (shouldAttachStaticOrVite && IS_PROD) {
     const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('/{*splat}', (_req, res) => {
+    app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
-  } else {
+  } else if (shouldAttachStaticOrVite) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: {
@@ -4488,12 +4506,24 @@ export class ErrorOverlay extends HTMLElement {}
     app.use(vite.middlewares);
   }
 
+  return app;
+}
+
+export async function startServer() {
+  const app = await createApp({ attachStaticOrVite: true });
+  const httpServer = http.createServer(app);
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`PadhloAI server listening on http://0.0.0.0:${PORT}`);
   });
+  return httpServer;
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+const isDirectEntry =
+  Boolean(process.argv[1]) && path.resolve(process.argv[1]) === __filename;
+
+if (!IS_SERVERLESS && isDirectEntry) {
+  startServer().catch((err) => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  });
+}

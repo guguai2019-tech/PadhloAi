@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Type } from '@google/genai';
 import {
   BookOpen,
   Check,
@@ -46,26 +45,26 @@ interface CbseHindiPaperStudioProps {
 }
 
 const PAPER_BATCH_SCHEMA = {
-  type: Type.OBJECT,
+  type: 'OBJECT',
   properties: {
     questions: {
-      type: Type.ARRAY,
+      type: 'ARRAY',
       items: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         properties: {
-          questionNumber: { type: Type.INTEGER },
-          sectionName: { type: Type.STRING },
-          questionCategory: { type: Type.STRING },
-          questionFormat: { type: Type.STRING },
-          marks: { type: Type.INTEGER },
-          wordLimit: { type: Type.STRING },
-          passageOrExtract: { type: Type.STRING },
-          questionText: { type: Type.STRING },
-          orOptionText: { type: Type.STRING },
-          options: { type: Type.ARRAY, items: { type: Type.STRING } },
-          correctAnswer: { type: Type.STRING },
-          markingSchemePoints: { type: Type.ARRAY, items: { type: Type.STRING } },
-          explanation: { type: Type.STRING },
+          questionNumber: { type: 'INTEGER' },
+          sectionName: { type: 'STRING' },
+          questionCategory: { type: 'STRING' },
+          questionFormat: { type: 'STRING' },
+          marks: { type: 'INTEGER' },
+          wordLimit: { type: 'STRING' },
+          passageOrExtract: { type: 'STRING' },
+          questionText: { type: 'STRING' },
+          orOptionText: { type: 'STRING' },
+          options: { type: 'ARRAY', items: { type: 'STRING' } },
+          correctAnswer: { type: 'STRING' },
+          markingSchemePoints: { type: 'ARRAY', items: { type: 'STRING' } },
+          explanation: { type: 'STRING' },
         },
         required: [
           'sectionName',

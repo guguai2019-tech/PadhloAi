@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Type } from '@google/genai';
 import {
   Bell,
   Calendar,
@@ -22,19 +21,19 @@ interface StudyPlannerProps {
 }
 
 const PLAN_SCHEMA = {
-  type: Type.OBJECT,
+  type: 'OBJECT',
   properties: {
     tasks: {
-      type: Type.ARRAY,
+      type: 'ARRAY',
       items: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         properties: {
-          day: { type: Type.STRING },
-          timeSlot: { type: Type.STRING },
-          subject: { type: Type.STRING },
-          topic: { type: Type.STRING },
-          durationMinutes: { type: Type.INTEGER },
-          type: { type: Type.STRING },
+          day: { type: 'STRING' },
+          timeSlot: { type: 'STRING' },
+          subject: { type: 'STRING' },
+          topic: { type: 'STRING' },
+          durationMinutes: { type: 'INTEGER' },
+          type: { type: 'STRING' },
         },
         required: ['day', 'timeSlot', 'subject', 'topic', 'durationMinutes', 'type'],
       },

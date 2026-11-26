@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Type } from '@google/genai';
 import {
   BookOpen,
   Check,
@@ -65,20 +64,20 @@ const QUESTION_FORMATS: GeneratorQuestionFormat[] = [
 ];
 
 const SCHEMA = {
-  type: Type.OBJECT,
+  type: 'OBJECT',
   properties: {
     questions: {
-      type: Type.ARRAY,
+      type: 'ARRAY',
       items: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         properties: {
-          number: { type: Type.INTEGER },
-          type: { type: Type.STRING },
-          question: { type: Type.STRING },
-          options: { type: Type.ARRAY, items: { type: Type.STRING } },
-          answer: { type: Type.STRING },
-          explanation: { type: Type.STRING },
-          marks: { type: Type.STRING },
+          number: { type: 'INTEGER' },
+          type: { type: 'STRING' },
+          question: { type: 'STRING' },
+          options: { type: 'ARRAY', items: { type: 'STRING' } },
+          answer: { type: 'STRING' },
+          explanation: { type: 'STRING' },
+          marks: { type: 'STRING' },
         },
         required: ['question', 'answer', 'explanation'],
       },

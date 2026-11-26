@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Type } from '@google/genai';
 import {
   BookOpen,
   Check,
@@ -39,16 +38,16 @@ const NOTES_FORMATS: NotesFormat[] = [
 ];
 
 const FLASHCARD_SCHEMA = {
-  type: Type.OBJECT,
+  type: 'OBJECT',
   properties: {
     cards: {
-      type: Type.ARRAY,
+      type: 'ARRAY',
       items: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         properties: {
-          front: { type: Type.STRING },
-          back: { type: Type.STRING },
-          hint: { type: Type.STRING },
+          front: { type: 'STRING' },
+          back: { type: 'STRING' },
+          hint: { type: 'STRING' },
         },
         required: ['front', 'back'],
       },
@@ -58,24 +57,24 @@ const FLASHCARD_SCHEMA = {
 };
 
 const MINDMAP_SCHEMA = {
-  type: Type.OBJECT,
+  type: 'OBJECT',
   properties: {
-    title: { type: Type.STRING },
-    summary: { type: Type.STRING },
+    title: { type: 'STRING' },
+    summary: { type: 'STRING' },
     children: {
-      type: Type.ARRAY,
+      type: 'ARRAY',
       items: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         properties: {
-          title: { type: Type.STRING },
-          summary: { type: Type.STRING },
+          title: { type: 'STRING' },
+          summary: { type: 'STRING' },
           children: {
-            type: Type.ARRAY,
+            type: 'ARRAY',
             items: {
-              type: Type.OBJECT,
+              type: 'OBJECT',
               properties: {
-                title: { type: Type.STRING },
-                summary: { type: Type.STRING },
+                title: { type: 'STRING' },
+                summary: { type: 'STRING' },
               },
               required: ['title'],
             },

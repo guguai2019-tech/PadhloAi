@@ -99,10 +99,76 @@ function buildGeminiConfig(opts: GenerateOptions, targetModel: string): Record<s
   if (opts.systemInstruction) config.systemInstruction = opts.systemInstruction;
   if (opts.responseMimeType) config.responseMimeType = opts.responseMimeType;
   if (opts.responseSchema) config.responseSchema = opts.responseSchema;
-  if (targetModel === 'gemini-4-hydrogen') {
+  if (targetModel.startsWith('gemini-4')) {
     config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
   }
   return config;
+}
+
+const DISALLOWED_FALLBACK_PATTERNS = [
+  'gemini-1.',
+  'gemini-2.0',
+  'gemini-pro',
+  'embedding',
+  'aqa',
+  'imagen',
+  'veo',
+  'gemma',
+  'learnlm',
+  '-tts',
+  '-image',
+  'audio',
+  'robotics',
+  'computer-use',
+];
+
+const PREFERRED_FALLBACK_ORDER = [
+  'gemini-4-hydrogen',
+  'gemini-3.1-flash-lite',
+  'gemini-3.8-flash',
+  'gemini-3-flash-preview',
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
+];
+
+async function discoverAvailableGeminiModel(
+  ai: GoogleGenAI,
+  excludedModels: Set<string>,
+): Promise<string | null> {
+  try {
+    const pager = await ai.models.list();
+    const candidates: string[] = [];
+    let count = 0;
+    for await (const model of pager) {
+      if (count++ >= 60) break;
+      const rawName = typeof model?.name === 'string' ? model.name : '';
+      const id = rawName.replace(/^models\//, '').trim();
+      if (!id || excludedModels.has(id)) continue;
+      if (!id.toLowerCase().startsWith('gemini-')) continue;
+      const lower = id.toLowerCase();
+      if (DISALLOWED_FALLBACK_PATTERNS.some((pat) => lower.includes(pat))) continue;
+
+      const actions = Array.isArray((model as { supportedActions?: unknown }).supportedActions)
+        ? ((model as { supportedActions?: string[] }).supportedActions ?? [])
+        : [];
+      if (
+        actions.length > 0 &&
+        !actions.some((a) => a.toLowerCase().includes('generatecontent'))
+      ) {
+        continue;
+      }
+      candidates.push(id);
+    }
+
+    for (const preferred of PREFERRED_FALLBACK_ORDER) {
+      if (candidates.includes(preferred)) {
+        return preferred;
+      }
+    }
+    return candidates[0] || null;
+  } catch {
+    return null;
+  }
 }
 
 export function getGeminiStatus(
@@ -123,7 +189,7 @@ export function getGeminiStatus(
     statusMessage = 'Google Gemini has been disabled by Administrator.';
   } else if (!configured) {
     connectionState = 'error';
-    statusMessage = 'Server GEMINI_API_KEY is missing. Configure it in server Secrets.';
+    statusMessage = 'Server GEMINI_API_KEY is missing. Configure it in server/Vercel environment variables.';
   } else if (!anyModelEnabled) {
     connectionState = 'no-models';
     statusMessage = 'All Gemini models are currently disabled by Administrator.';
@@ -153,22 +219,25 @@ export async function testGeminiConnection(): Promise<{
     return {
       ok: false,
       connectionState: 'error',
-      message: 'Server GEMINI_API_KEY is missing. Configure it in server Secrets.',
+      message: 'Server GEMINI_API_KEY is missing. Configure it in server/Vercel environment variables.',
       modelsCount: 0,
     };
   }
 
-  try {
-    const ai = getGeminiClient();
-    const res = await Promise.race([
+  const ai = getGeminiClient();
+  const runProbe = async (modelId: string) =>
+    Promise.race([
       ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
+        model: modelId,
         contents: [{ role: 'user', parts: [{ text: 'Reply with OK.' }] }],
       }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new ProviderError('Gemini connection test timed out.', 503)), 8000),
       ),
     ]);
+
+  try {
+    const res = await runProbe('gemini-3.1-flash-lite');
     if (res.text !== undefined) {
       return {
         ok: true,
@@ -185,6 +254,33 @@ export async function testGeminiConnection(): Promise<{
     };
   } catch (err) {
     const norm = normalizeUpstreamError(err);
+    if (norm.status === 404) {
+      const discovered = await discoverAvailableGeminiModel(
+        ai,
+        new Set(['gemini-3.1-flash-lite']),
+      );
+      if (discovered) {
+        try {
+          const fallbackRes = await runProbe(discovered);
+          if (fallbackRes.text !== undefined) {
+            return {
+              ok: true,
+              connectionState: 'connected',
+              message: `Google Gemini API verified via active model (${discovered}).`,
+              modelsCount: GEMINI_MODELS.length,
+            };
+          }
+        } catch (fallbackErr) {
+          const fallbackNorm = normalizeUpstreamError(fallbackErr);
+          return {
+            ok: false,
+            connectionState: 'error',
+            message: fallbackNorm.message,
+            modelsCount: 0,
+          };
+        }
+      }
+    }
     return {
       ok: false,
       connectionState: 'error',
@@ -235,18 +331,32 @@ export async function generateGeminiCompletion(
     };
   };
 
+  const triedModels = new Set<string>([resolvedModel]);
+
   try {
     const canLiteBackup =
       resolvedModel !== 'gemini-3.1-flash-lite' && allowedModelIds.has('gemini-3.1-flash-lite');
     return await callModel(resolvedModel, canLiteBackup ? 0 : 2, canLiteBackup ? 8000 : 45000);
   } catch (err) {
-    const norm = normalizeUpstreamError(err);
+    let norm = normalizeUpstreamError(err);
     if (
-      (norm.status === 503 || norm.status === 429) &&
+      (norm.status === 503 || norm.status === 429 || norm.status === 404) &&
       resolvedModel !== 'gemini-3.1-flash-lite' &&
       allowedModelIds.has('gemini-3.1-flash-lite')
     ) {
-      return await callModel('gemini-3.1-flash-lite', 2, 45000);
+      triedModels.add('gemini-3.1-flash-lite');
+      try {
+        return await callModel('gemini-3.1-flash-lite', 2, 45000);
+      } catch (liteErr) {
+        norm = normalizeUpstreamError(liteErr);
+      }
+    }
+
+    if (norm.status === 404) {
+      const discovered = await discoverAvailableGeminiModel(ai, triedModels);
+      if (discovered) {
+        return await callModel(discovered, 1, 45000);
+      }
     }
     throw norm;
   }
@@ -321,19 +431,33 @@ export async function streamGeminiCompletion(
     return { modelUsed: targetModel, providerUsed: 'gemini' as const };
   };
 
+  const triedModels = new Set<string>([resolvedModel]);
+
   try {
     const canLiteBackup =
       resolvedModel !== 'gemini-3.1-flash-lite' && allowedModelIds.has('gemini-3.1-flash-lite');
     return await streamModel(resolvedModel, canLiteBackup ? 0 : 2, canLiteBackup ? 7000 : undefined);
   } catch (err) {
-    const norm = normalizeUpstreamError(err);
+    let norm = normalizeUpstreamError(err);
     if (
       !signal.aborted &&
-      (norm.status === 503 || norm.status === 429) &&
+      (norm.status === 503 || norm.status === 429 || norm.status === 404) &&
       resolvedModel !== 'gemini-3.1-flash-lite' &&
       allowedModelIds.has('gemini-3.1-flash-lite')
     ) {
-      return await streamModel('gemini-3.1-flash-lite', 2);
+      triedModels.add('gemini-3.1-flash-lite');
+      try {
+        return await streamModel('gemini-3.1-flash-lite', 2);
+      } catch (liteErr) {
+        norm = normalizeUpstreamError(liteErr);
+      }
+    }
+
+    if (!signal.aborted && norm.status === 404) {
+      const discovered = await discoverAvailableGeminiModel(ai, triedModels);
+      if (discovered) {
+        return await streamModel(discovered, 1);
+      }
     }
     throw norm;
   }

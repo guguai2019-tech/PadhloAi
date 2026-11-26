@@ -53,11 +53,54 @@ function notifyIfFallback(meta: AiExecutionMetadata): void {
   }
 }
 
+async function parseHttpErrorResponse(res: Response, endpoint: string): Promise<string> {
+  const rawText = await res.text().catch(() => '');
+  let serverMessage = '';
+  let trimmed = rawText.trim();
+
+  if (trimmed) {
+    try {
+      const parsed = JSON.parse(trimmed) as { error?: string; message?: string };
+      serverMessage = (parsed.error || parsed.message || '').trim();
+    } catch {
+      // Non-JSON body (e.g., HTML error page from Vercel/CDN proxy)
+      const looksHtml = /^<!doctype|<html/i.test(trimmed);
+      if (!looksHtml && trimmed.length <= 240) {
+        serverMessage = trimmed;
+      }
+    }
+  }
+
+  if (serverMessage) {
+    return serverMessage;
+  }
+
+  switch (res.status) {
+    case 400:
+      return `Invalid AI request (HTTP 400) for ${endpoint}. Please verify your message or attachment and try again.`;
+    case 401:
+      return 'Gemini API authentication failed (HTTP 401). Please check that GEMINI_API_KEY is valid in your server/Vercel environment variables.';
+    case 403:
+      return 'Gemini API access denied (HTTP 403). Verify GEMINI_API_KEY permissions, API enablement, or billing status.';
+    case 404:
+      return `AI API endpoint (${endpoint}) or Gemini model returned HTTP 404 (Not Found). Ensure Vercel /api serverless functions (vercel.json and api/index.ts) are deployed and GEMINI_API_KEY is configured.`;
+    case 429:
+      return 'Gemini API rate limit or quota exceeded (HTTP 429). Please wait a moment and click Retry.';
+    case 500:
+      return `Server encountered an internal error (HTTP 500) while processing ${endpoint}. Please verify server logs and GEMINI_API_KEY configuration.`;
+    case 502:
+    case 503:
+    case 504:
+      return `AI service temporarily unavailable or timed out (HTTP ${res.status}). Please retry in a moment.`;
+    default:
+      return `Request to ${endpoint} failed with status ${res.status}.`;
+  }
+}
+
 export async function fetchProvidersOverview(): Promise<ProvidersOverviewResponse> {
   const res = await fetch('/api/ai/providers');
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error || 'Failed to load AI providers.');
+    throw new Error(await parseHttpErrorResponse(res, '/api/ai/providers'));
   }
   return (await res.json()) as ProvidersOverviewResponse;
 }
@@ -70,8 +113,7 @@ export async function fetchProviders(): Promise<ProviderStatus[]> {
 export async function refreshProvidersOverview(): Promise<ProvidersOverviewResponse> {
   const res = await fetch('/api/ai/providers/refresh', { method: 'POST' });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error || 'Failed to refresh AI models.');
+    throw new Error(await parseHttpErrorResponse(res, '/api/ai/providers/refresh'));
   }
   return (await res.json()) as ProvidersOverviewResponse;
 }
@@ -88,6 +130,9 @@ export async function testProviderConnectionApi(provider: ProviderId): Promise<{
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider }),
   });
+  if (!res.ok) {
+    throw new Error(await parseHttpErrorResponse(res, '/api/ai/providers/test'));
+  }
   const data = (await res.json().catch(() => ({}))) as {
     ok?: boolean;
     provider?: ProviderId;
@@ -96,9 +141,6 @@ export async function testProviderConnectionApi(provider: ProviderId): Promise<{
     modelsCount?: number;
     error?: string;
   };
-  if (!res.ok) {
-    throw new Error(data.error || 'Connection test failed.');
-  }
   return {
     ok: Boolean(data.ok),
     provider: data.provider || provider,
@@ -156,8 +198,7 @@ export async function streamChat(
     });
 
     if (!res.ok) {
-      const errData = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(errData.error || `Request failed with status ${res.status}`);
+      throw new Error(await parseHttpErrorResponse(res, '/api/ai/chat/stream'));
     }
 
     if (!res.body) {
@@ -291,8 +332,7 @@ export async function generateAI(
   });
 
   if (!res.ok) {
-    const errData = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(errData.error || `Request failed with status ${res.status}`);
+    throw new Error(await parseHttpErrorResponse(res, '/api/ai/generate'));
   }
 
   const result = (await res.json()) as AiExecutionMetadata & { text: string };

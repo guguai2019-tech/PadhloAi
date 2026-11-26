@@ -91,7 +91,31 @@ export interface CentralizedDatabase {
   catalogUpdatedAt: number;
 }
 
-const STORAGE_ROOT = path.resolve(process.cwd(), 'private_storage');
+const IS_SERVERLESS_FS = Boolean(
+  process.env.VERCEL ||
+    process.env.VERCEL_ENV ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.LAMBDA_TASK_ROOT,
+);
+const LOCAL_STORAGE_ROOT = path.resolve(process.cwd(), 'private_storage');
+const TEMP_STORAGE_ROOT = path.resolve('/tmp', 'padhloai_storage');
+
+function resolveWritableStorageRoot(): string {
+  if (IS_SERVERLESS_FS) {
+    return TEMP_STORAGE_ROOT;
+  }
+  try {
+    if (!fs.existsSync(LOCAL_STORAGE_ROOT)) {
+      fs.mkdirSync(LOCAL_STORAGE_ROOT, { recursive: true, mode: 0o700 });
+    }
+    fs.accessSync(LOCAL_STORAGE_ROOT, fs.constants.W_OK);
+    return LOCAL_STORAGE_ROOT;
+  } catch {
+    return TEMP_STORAGE_ROOT;
+  }
+}
+
+const STORAGE_ROOT = resolveWritableStorageRoot();
 const PDF_DIR = path.resolve(STORAGE_ROOT, 'pdfs');
 const SYLLABUS_DIR = path.resolve(STORAGE_ROOT, 'syllabuses');
 export const VIDEO_DIR = path.resolve(STORAGE_ROOT, 'videos');
@@ -369,10 +393,20 @@ export function readDb(): CentralizedDatabase {
   if (dbCache) return dbCache;
   ensurePrivateStorageDirs();
   if (!fs.existsSync(DB_PATH)) {
-    const initial = createInitialDb();
-    fs.writeFileSync(DB_PATH, JSON.stringify(initial, null, 2), { mode: 0o600 });
-    dbCache = initial;
-    return dbCache;
+    const bundledDbPath = path.resolve(LOCAL_STORAGE_ROOT, 'sg_db.json');
+    if (STORAGE_ROOT !== LOCAL_STORAGE_ROOT && fs.existsSync(bundledDbPath)) {
+      try {
+        fs.copyFileSync(bundledDbPath, DB_PATH);
+      } catch {
+        // Fallback to fresh initial DB below
+      }
+    }
+    if (!fs.existsSync(DB_PATH)) {
+      const initial = createInitialDb();
+      fs.writeFileSync(DB_PATH, JSON.stringify(initial, null, 2), { mode: 0o600 });
+      dbCache = initial;
+      return dbCache;
+    }
   }
 
   try {
