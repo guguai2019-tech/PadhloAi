@@ -1,0 +1,6 @@
+{
+  "name": "PadhloAI",
+  "description": "PadhloAI — Your AI-Powered Learning Companion. Complete free AI assistant platform for students featuring multi-turn chat, PDF toolkit, mock test generator, question bank, study notes, AI lesson plan generator, image analysis, writing tools, math & science solver, coding studio, and study planner.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
